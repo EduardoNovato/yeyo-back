@@ -11,15 +11,28 @@ logger = logging.getLogger(__name__)
 class DatabaseConnection:
     """
     Singleton para manejar la conexión a la base de datos PostgreSQL
+    
+    Este patrón Singleton garantiza que solo exista una instancia del pool
+    de conexiones a la base de datos durante toda la ejecución de la aplicación.
     """
     _instance: Optional['DatabaseConnection'] = None
     _connection_pool: Optional[asyncpg.Pool] = None
+    _initialized: bool = False
     
     def __new__(cls) -> 'DatabaseConnection':
         """Implementación del patrón Singleton"""
         if cls._instance is None:
             cls._instance = super(DatabaseConnection, cls).__new__(cls)
         return cls._instance
+    
+    def __init__(self):
+        """
+        Inicializador que se ejecuta solo una vez gracias al flag _initialized.
+        Esto evita reinicializar la instancia en llamadas posteriores.
+        """
+        if not DatabaseConnection._initialized:
+            DatabaseConnection._initialized = True
+            logger.info("Instancia Singleton de DatabaseConnection inicializada")
     
     async def connect(self) -> None:
         """Establece la conexión pool a la base de datos"""

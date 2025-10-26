@@ -1,12 +1,13 @@
 """
-Clase base para todos los servicios
+Clase base para todos los servicios - Contiene lógica de negocio
+Usa el patrón Repository para acceso a datos
 """
-from typing import TypeVar, Generic, Optional, List, Type, Dict, Any
+from typing import TypeVar, Generic, Optional, List, Type
 from pydantic import BaseModel
 import asyncpg
 import logging
-from app.core.database import get_db_connection
-from app.core.utils import build_update_query
+from app.core.base_repository import BaseRepository
+from app.core.exceptions import NotFoundError, DuplicateError, ForeignKeyError, DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -18,140 +19,183 @@ ResponseSchema = TypeVar('ResponseSchema', bound=BaseModel)
 
 class BaseService(Generic[CreateSchema, UpdateSchema, ResponseSchema]):
     """
-    Clase base genérica para servicios CRUD.
+    Clase base genérica para servicios con lógica de negocio.
     
-    Proporciona métodos comunes para operaciones de base de datos.
+    Este servicio delega las operaciones de persistencia al Repository
+    y se enfoca únicamente en la lógica de negocio y validaciones.
+    
+    Responsabilidades:
+    - Validaciones de negocio
+    - Orquestación de operaciones complejas
+    - Manejo de excepciones de negocio
+    - NO maneja SQL directamente (usa Repository)
     """
     
     def __init__(
         self, 
-        table_name: str,
-        id_field: str,
-        response_model: Type[ResponseSchema]
+        repository: BaseRepository[ResponseSchema],
+        entity_name: str
     ):
         """
         Inicializa el servicio base.
         
         Args:
-            table_name: Nombre de la tabla en la base de datos
-            id_field: Nombre del campo ID principal
-            response_model: Clase del modelo de respuesta
+            repository: Instancia del repositorio a usar
+            entity_name: Nombre de la entidad para mensajes de error (ej: "Proveedor")
         """
-        self.table_name = table_name
-        self.id_field = id_field
-        self.response_model = response_model
+        self.repository = repository
+        self.entity_name = entity_name
     
-    async def get_by_id(self, id_value: Any) -> Optional[ResponseSchema]:
-        """Obtiene un registro por su ID"""
-        async with get_db_connection() as conn:
-            try:
-                query = f"SELECT * FROM {self.table_name} WHERE {self.id_field} = $1"
-                row = await conn.fetchrow(query, id_value)
-                return self.response_model(**dict(row)) if row else None
-            except Exception as e:
-                logger.error(f"Error al obtener registro {id_value}: {e}")
-                raise
+    async def get_by_id(self, id_value: any) -> ResponseSchema:
+        """
+        Obtiene un registro por su ID.
+        
+        Args:
+            id_value: Valor del ID
+            
+        Returns:
+            Modelo del registro
+            
+        Raises:
+            NotFoundError: Si no se encuentra el registro
+        """
+        try:
+            result = await self.repository.find_by_id(id_value)
+            if not result:
+                raise NotFoundError(self.entity_name, id_value)
+            return result
+        except NotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error al obtener {self.entity_name} {id_value}: {e}")
+            raise DatabaseError(str(e))
     
     async def get_all(self, order_by: Optional[str] = None) -> List[ResponseSchema]:
-        """Obtiene todos los registros"""
-        async with get_db_connection() as conn:
-            try:
-                order_clause = f"ORDER BY {order_by}" if order_by else f"ORDER BY {self.id_field}"
-                query = f"SELECT * FROM {self.table_name} {order_clause}"
-                rows = await conn.fetch(query)
-                return [self.response_model(**dict(row)) for row in rows]
-            except Exception as e:
-                logger.error(f"Error al obtener registros: {e}")
-                raise
-    
-    async def update(
-        self, 
-        id_value: Any, 
-        update_data: UpdateSchema,
-        not_found_error: Optional[Exception] = None
-    ) -> ResponseSchema:
         """
-        Actualiza un registro de forma genérica.
+        Obtiene todos los registros.
         
         Args:
-            id_value: Valor del ID del registro a actualizar
-            update_data: Datos a actualizar
-            not_found_error: Excepción a lanzar si no se encuentra el registro
-        
+            order_by: Campo por el cual ordenar (opcional)
+            
         Returns:
-            Modelo actualizado
+            Lista de modelos
         """
-        async with get_db_connection() as conn:
-            async with conn.transaction():
-                try:
-                    # Verificar si existe
-                    existing = await self.get_by_id(id_value)
-                    if not existing:
-                        if not_found_error:
-                            raise not_found_error
-                        raise ValueError(f"Registro con {self.id_field}={id_value} no encontrado")
-                    
-                    # Obtener datos a actualizar
-                    update_dict = update_data.model_dump(exclude_unset=True)
-                    
-                    if not update_dict:
-                        return existing
-                    
-                    # Construir y ejecutar query
-                    query, values = build_update_query(
-                        self.table_name,
-                        update_dict,
-                        self.id_field,
-                        id_value
-                    )
-                    
-                    row = await conn.fetchrow(query, *values)
-                    
-                    if not row:
-                        raise ValueError("No se pudo actualizar el registro")
-                    
-                    logger.info(f"Registro {id_value} actualizado exitosamente en {self.table_name}")
-                    return self.response_model(**dict(row))
-                    
-                except Exception as e:
-                    logger.error(f"Error al actualizar registro: {e}")
-                    raise
+        try:
+            return await self.repository.find_all(order_by=order_by)
+        except Exception as e:
+            logger.error(f"Error al obtener todos los {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
     
-    async def delete(
-        self, 
-        id_value: Any,
-        not_found_error: Optional[Exception] = None
-    ) -> bool:
+    async def create(self, create_data: CreateSchema) -> ResponseSchema:
         """
-        Elimina un registro de forma genérica.
+        Crea un nuevo registro.
         
         Args:
-            id_value: Valor del ID del registro a eliminar
-            not_found_error: Excepción a lanzar si no se encuentra el registro
+            create_data: Datos para crear el registro
+            
+        Returns:
+            Modelo del registro creado
+            
+        Raises:
+            DuplicateError: Si existe un registro duplicado
+            ForeignKeyError: Si hay error de clave foránea
+            DatabaseError: Para otros errores de BD
+        """
+        try:
+            # Validaciones de negocio adicionales pueden ir aquí
+            data_dict = create_data.model_dump(exclude_unset=True)
+            return await self.repository.create(data_dict)
+            
+        except asyncpg.UniqueViolationError as e:
+            logger.warning(f"Intento de crear {self.entity_name} duplicado: {e}")
+            raise DuplicateError(self.entity_name, "campo único", "valor duplicado")
+        except asyncpg.ForeignKeyViolationError as e:
+            logger.warning(f"Error de clave foránea al crear {self.entity_name}: {e}")
+            raise ForeignKeyError("registro relacionado", "id")
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de PostgreSQL al crear {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+        except Exception as e:
+            logger.error(f"Error inesperado al crear {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+    
+    async def update(self, id_value: any, update_data: UpdateSchema) -> ResponseSchema:
+        """
+        Actualiza un registro existente.
         
+        Args:
+            id_value: ID del registro a actualizar
+            update_data: Datos a actualizar
+            
+        Returns:
+            Modelo del registro actualizado
+            
+        Raises:
+            NotFoundError: Si no existe el registro
+            DuplicateError: Si la actualización viola restricciones únicas
+            ForeignKeyError: Si hay error de clave foránea
+        """
+        try:
+            # Verificar que existe
+            await self.get_by_id(id_value)
+            
+            # Obtener solo los campos que se van a actualizar
+            update_dict = update_data.model_dump(exclude_unset=True)
+            
+            if not update_dict:
+                # Si no hay cambios, retornar el existente
+                return await self.get_by_id(id_value)
+            
+            # Validaciones de negocio adicionales pueden ir aquí
+            
+            return await self.repository.update(id_value, update_dict)
+            
+        except NotFoundError:
+            raise
+        except asyncpg.UniqueViolationError:
+            logger.warning(f"Intento de actualizar con valor duplicado en {self.entity_name}")
+            raise DuplicateError(self.entity_name, "campo único", "valor duplicado")
+        except asyncpg.ForeignKeyViolationError:
+            logger.warning(f"Error de clave foránea al actualizar {self.entity_name}")
+            raise ForeignKeyError("registro relacionado", "id")
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de PostgreSQL al actualizar {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+        except Exception as e:
+            logger.error(f"Error inesperado al actualizar {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+    
+    async def delete(self, id_value: any) -> bool:
+        """
+        Elimina un registro.
+        
+        Args:
+            id_value: ID del registro a eliminar
+            
         Returns:
             True si se eliminó correctamente
+            
+        Raises:
+            NotFoundError: Si no existe el registro
+            DatabaseError: Si hay error al eliminar (ej: clave foránea)
         """
-        async with get_db_connection() as conn:
-            async with conn.transaction():
-                try:
-                    # Verificar si existe
-                    existing = await self.get_by_id(id_value)
-                    if not existing:
-                        if not_found_error:
-                            raise not_found_error
-                        raise ValueError(f"Registro con {self.id_field}={id_value} no encontrado")
-                    
-                    query = f"DELETE FROM {self.table_name} WHERE {self.id_field} = $1"
-                    result = await conn.execute(query, id_value)
-                    
-                    deleted_count = int(result.split()[-1])
-                    if deleted_count == 0:
-                        raise ValueError("No se pudo eliminar el registro")
-                    
-                    logger.info(f"Registro {id_value} eliminado exitosamente de {self.table_name}")
-                    return True
-                    
-                except Exception as e:
-                    logger.error(f"Error al eliminar registro: {e}")
-                    raise
+        try:
+            # Verificar que existe
+            await self.get_by_id(id_value)
+            
+            # Validaciones de negocio antes de eliminar pueden ir aquí
+            
+            return await self.repository.delete(id_value)
+            
+        except NotFoundError:
+            raise
+        except asyncpg.ForeignKeyViolationError:
+            logger.warning(f"No se puede eliminar {self.entity_name} {id_value}: tiene registros relacionados")
+            raise DatabaseError(f"No se puede eliminar el {self.entity_name} porque tiene registros relacionados")
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de PostgreSQL al eliminar {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+        except Exception as e:
+            logger.error(f"Error inesperado al eliminar {self.entity_name}: {e}")
+            raise DatabaseError(str(e))
+
