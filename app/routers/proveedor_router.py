@@ -65,16 +65,16 @@ async def actualizar_proveedor(
 ):
     """Actualizar un proveedor"""
     try:
-        proveedor = await ProveedorService.update_proveedor(id_proveedor, proveedor_data)
-        if not proveedor:
-            raise HTTPException(status_code=404, detail="Proveedor no encontrado")
-        return proveedor
-    except ValueError as e:
+        return await ProveedorService.update_proveedor(id_proveedor, proveedor_data)
+    except ProveedorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except DuplicateProveedorError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ProveedorServiceError as e:
+        logger.error(f"Error del servicio al actualizar proveedor: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error al actualizar proveedor {id_proveedor}: {e}")
+        logger.error(f"Error inesperado al actualizar proveedor: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 @router.delete("/{id_proveedor}", status_code=204)
@@ -83,13 +83,14 @@ async def eliminar_proveedor(
 ):
     """Eliminar un proveedor"""
     try:
-        eliminado = await ProveedorService.delete_proveedor(id_proveedor)
-        if not eliminado:
-            raise HTTPException(status_code=404, detail="Proveedor no encontrado")
-    except HTTPException:
-        raise
+        await ProveedorService.delete_proveedor(id_proveedor)
+    except ProveedorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ProveedorServiceError as e:
+        logger.error(f"Error del servicio al eliminar proveedor: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error al eliminar proveedor {id_proveedor}: {e}")
+        logger.error(f"Error inesperado al eliminar proveedor: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 @router.get("/buscar/nombre", response_model=List[ProveedorResponse])

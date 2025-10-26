@@ -2,6 +2,7 @@ from typing import List, Optional
 from decimal import Decimal
 import asyncpg
 from app.core.database import get_db_connection
+from app.core.constants import DB_SCHEMA
 from app.models.proveedor import ProveedorCreate, ProveedorUpdate, ProveedorResponse
 import logging
 
@@ -28,8 +29,8 @@ class ProveedorService:
         async with get_db_connection() as conn:
             async with conn.transaction():  # Uso de transacciones explícitas
                 try:
-                    query = """
-                        INSERT INTO psa_problems.proveedor (
+                    query = f"""
+                        INSERT INTO {DB_SCHEMA}.proveedor (
                             nombre, 
                             nit, 
                             descripcion, 
@@ -85,7 +86,7 @@ class ProveedorService:
         """Obtener un proveedor por su ID"""
         async with get_db_connection() as conn:
             try:
-                query = "SELECT * FROM psa_problems.proveedor WHERE id_proveedor = $1"
+                query = f"SELECT * FROM {DB_SCHEMA}.proveedor WHERE id_proveedor = $1"
                 row = await conn.fetchrow(query, id_proveedor)
                 return ProveedorResponse(**dict(row)) if row else None
             except Exception as e:
@@ -97,8 +98,8 @@ class ProveedorService:
         """Obtener todos los proveedores con paginación"""
         async with get_db_connection() as conn:
             try:
-                query = """
-                    SELECT * FROM psa_problems.proveedor 
+                query = f"""
+                    SELECT * FROM {DB_SCHEMA}.proveedor 
                     ORDER BY id_proveedor 
                 """
                 rows = await conn.fetch(query)
@@ -114,116 +115,93 @@ class ProveedorService:
     async def update_proveedor(id_proveedor: int, proveedor_data: ProveedorUpdate) -> Optional[ProveedorResponse]:
         """Actualizar un proveedor"""
         async with get_db_connection() as conn:
-            try:
-                # Construir la query dinámicamente solo con los campos que se van a actualizar
-                update_fields = []
-                values = []
-                param_counter = 1
-                
-                if proveedor_data.nombre is not None:
-                    update_fields.append(f"nombre = ${param_counter}")
-                    values.append(proveedor_data.nombre)
-                    param_counter += 1
-                
-                if proveedor_data.nit is not None:
-                    update_fields.append(f"nit = ${param_counter}")
-                    values.append(proveedor_data.nit)
-                    param_counter += 1
-                
-                if proveedor_data.descripcion is not None:
-                    update_fields.append(f"descripcion = ${param_counter}")
-                    values.append(proveedor_data.descripcion)
-                    param_counter += 1
-                
-                if proveedor_data.num_art_comprados is not None:
-                    update_fields.append(f"num_art_comprados = ${param_counter}")
-                    values.append(proveedor_data.num_art_comprados)
-                    param_counter += 1
-                
-                if proveedor_data.num_art_devoluciones is not None:
-                    update_fields.append(f"num_art_devoluciones = ${param_counter}")
-                    values.append(proveedor_data.num_art_devoluciones)
-                    param_counter += 1
-                
-                if proveedor_data.num_art_vendidas is not None:
-                    update_fields.append(f"num_art_vendidas = ${param_counter}")
-                    values.append(proveedor_data.num_art_vendidas)
-                    param_counter += 1
-                
-                if proveedor_data.num_compras is not None:
-                    update_fields.append(f"num_compras = ${param_counter}")
-                    values.append(proveedor_data.num_compras)
-                    param_counter += 1
-                
-                if proveedor_data.valor_comprado is not None:
-                    update_fields.append(f"valor_comprado = ${param_counter}")
-                    values.append(proveedor_data.valor_comprado)
-                    param_counter += 1
-                
-                if proveedor_data.num_devoluciones is not None:
-                    update_fields.append(f"num_devoluciones = ${param_counter}")
-                    values.append(proveedor_data.num_devoluciones)
-                    param_counter += 1
-                
-                if proveedor_data.valor_devuelto is not None:
-                    update_fields.append(f"valor_devuelto = ${param_counter}")
-                    values.append(proveedor_data.valor_devuelto)
-                    param_counter += 1
-                
-                if proveedor_data.num_ventas is not None:
-                    update_fields.append(f"num_ventas = ${param_counter}")
-                    values.append(proveedor_data.num_ventas)
-                    param_counter += 1
-                
-                if proveedor_data.valor_vendido is not None:
-                    update_fields.append(f"valor_vendido = ${param_counter}")
-                    values.append(proveedor_data.valor_vendido)
-                    param_counter += 1
-                
-                if proveedor_data.rating_art_provedor is not None:
-                    update_fields.append(f"rating_art_provedor = ${param_counter}")
-                    values.append(proveedor_data.rating_art_provedor)
-                    param_counter += 1
-                
-                if not update_fields:
-                    # Si no hay campos para actualizar, devolver el proveedor actual
-                    return await ProveedorService.get_proveedor_by_id(id_proveedor)
-                
-                query = f"""
-                    UPDATE psa_problems.proveedor 
-                    SET {', '.join(update_fields)}
-                    WHERE id_proveedor = ${param_counter}
-                    RETURNING *
-                """
-                values.append(id_proveedor)
-                
-                row = await conn.fetchrow(query, *values)
-                return ProveedorResponse(**dict(row)) if row else None
-            except asyncpg.UniqueViolationError:
-                raise ValueError("Ya existe un proveedor con ese NIT")
-            except Exception as e:
-                logger.error(f"Error al actualizar proveedor {id_proveedor}: {e}")
-                raise
+            async with conn.transaction():
+                try:
+                    # Verificar si el proveedor existe
+                    existing = await ProveedorService.get_proveedor_by_id(id_proveedor)
+                    if not existing:
+                        raise ProveedorNotFoundError(f"Proveedor con ID {id_proveedor} no encontrado")
+                    
+                    # Construir la query dinámicamente usando model_dump(exclude_unset=True)
+                    update_data = proveedor_data.model_dump(exclude_unset=True)
+                    
+                    if not update_data:
+                        return existing
+                    
+                    update_fields = []
+                    values = []
+                    for idx, (field, value) in enumerate(update_data.items(), start=1):
+                        update_fields.append(f"{field} = ${idx}")
+                        values.append(value)
+                    
+                    query = f"""
+                        UPDATE {DB_SCHEMA}.proveedor 
+                        SET {', '.join(update_fields)}
+                        WHERE id_proveedor = ${len(values) + 1}
+                        RETURNING *
+                    """
+                    values.append(id_proveedor)
+                    
+                    row = await conn.fetchrow(query, *values)
+                    
+                    if not row:
+                        raise ProveedorServiceError("No se pudo actualizar el proveedor")
+                    
+                    logger.info(f"Proveedor {id_proveedor} actualizado exitosamente")
+                    return ProveedorResponse(**dict(row))
+                    
+                except ProveedorNotFoundError:
+                    raise
+                except asyncpg.UniqueViolationError:
+                    logger.warning(f"Intento de actualizar con NIT duplicado")
+                    raise DuplicateProveedorError("Ya existe un proveedor con ese NIT")
+                except asyncpg.PostgresError as e:
+                    logger.error(f"Error de base de datos al actualizar proveedor: {e}")
+                    raise ProveedorServiceError(f"Error de base de datos: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error al actualizar proveedor {id_proveedor}: {e}")
+                    raise ProveedorServiceError(f"Error interno: {str(e)}")
     
     @staticmethod
     async def delete_proveedor(id_proveedor: int) -> bool:
         """Eliminar un proveedor"""
         async with get_db_connection() as conn:
-            try:
-                query = "DELETE FROM psa_problems.proveedor WHERE id_proveedor = $1"
-                result = await conn.execute(query, id_proveedor)
-                return result == "DELETE 1"
-            except Exception as e:
-                logger.error(f"Error al eliminar proveedor {id_proveedor}: {e}")
-                raise
+            async with conn.transaction():
+                try:
+                    # Verificar si el proveedor existe
+                    existing = await ProveedorService.get_proveedor_by_id(id_proveedor)
+                    if not existing:
+                        raise ProveedorNotFoundError(f"Proveedor con ID {id_proveedor} no encontrado")
+                    
+                    query = f"DELETE FROM {DB_SCHEMA}.proveedor WHERE id_proveedor = $1"
+                    result = await conn.execute(query, id_proveedor)
+                    
+                    deleted_count = int(result.split()[-1])
+                    if deleted_count == 0:
+                        raise ProveedorServiceError("No se pudo eliminar el proveedor")
+                    
+                    logger.info(f"Proveedor {id_proveedor} eliminado exitosamente")
+                    return True
+                    
+                except ProveedorNotFoundError:
+                    raise
+                except asyncpg.ForeignKeyViolationError:
+                    logger.warning(f"No se puede eliminar el proveedor {id_proveedor}: tiene compras asociadas")
+                    raise ProveedorServiceError("No se puede eliminar el proveedor porque tiene compras asociadas")
+                except asyncpg.PostgresError as e:
+                    logger.error(f"Error de base de datos al eliminar proveedor: {e}")
+                    raise ProveedorServiceError(f"Error de base de datos: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error al eliminar proveedor {id_proveedor}: {e}")
+                    raise ProveedorServiceError(f"Error interno: {str(e)}")
     
     @staticmethod
     async def search_proveedores_by_name(nombre: str) -> List[ProveedorResponse]:
         """Buscar proveedores por nombre"""
         async with get_db_connection() as conn:
             try:
-                query = """
-                    SELECT * FROM psa_problems.proveedor 
+                query = f"""
+                    SELECT * FROM {DB_SCHEMA}.proveedor 
                     WHERE nombre ILIKE $1 
                     ORDER BY nombre
                 """
