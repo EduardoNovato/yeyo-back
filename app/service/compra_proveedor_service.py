@@ -8,7 +8,7 @@ import asyncpg
 import logging
 from app.core.base_service import BaseService
 from app.core.base_repository import BaseRepository
-from app.core.constants import DB_SCHEMA
+from app.core.config import db_config
 from app.core.exceptions import NotFoundError, DuplicateError, ForeignKeyError, DatabaseError
 from app.models.compra_proveedor import CompraProveedorCreate, CompraProveedorUpdate, CompraProveedorResponse
 
@@ -26,7 +26,7 @@ class CompraProveedorRepository(BaseRepository[CompraProveedorResponse]):
             table_name="compra_proveedor",
             id_field="id_compra",
             response_model=CompraProveedorResponse,
-            schema=DB_SCHEMA
+            schema=db_config.SCHEMA
         )
     
     async def find_by_proveedor(self, id_proveedor: int) -> List[CompraProveedorResponse]:

@@ -7,7 +7,7 @@ import asyncpg
 import logging
 from app.core.base_service import BaseService
 from app.core.base_repository import BaseRepository
-from app.core.constants import DB_SCHEMA
+from app.core.config import db_config
 from app.core.exceptions import NotFoundError, DuplicateError, DatabaseError
 from app.models.proveedor import ProveedorCreate, ProveedorUpdate, ProveedorResponse
 
@@ -25,7 +25,7 @@ class ProveedorRepository(BaseRepository[ProveedorResponse]):
             table_name="proveedor",
             id_field="id_proveedor",
             response_model=ProveedorResponse,
-            schema=DB_SCHEMA
+            schema=db_config.SCHEMA
         )
     
     async def search_by_name(self, nombre: str) -> List[ProveedorResponse]:

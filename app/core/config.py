@@ -12,6 +12,7 @@ class DatabaseConfig:
     DATABASE: str = os.getenv("NAME_DB")
     USERNAME: str = os.getenv("USER_DB")
     PASSWORD: str = os.getenv("PASSWORD_DB")
+    SCHEMA: str = os.getenv("SCHEMA_DB")
     
     # @classmethod
     # def get_database_url(cls) -> str:
