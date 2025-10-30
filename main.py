@@ -4,13 +4,19 @@ from contextlib import asynccontextmanager
 import uvicorn
 from app.routers import proveedor_router, compra_proveedor_router
 from app.core.database import db
+from app.core.service_factory import ServiceFactory
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Maneja el ciclo de vida de la aplicación"""
     # Startup: se ejecuta al iniciar la aplicación
     await db.connect()
+    
+    # Inicializar factory de servicios
+    ServiceFactory.initialize()
+    
     yield
+    
     # Shutdown: se ejecuta al cerrar la aplicación
     await db.disconnect()
 

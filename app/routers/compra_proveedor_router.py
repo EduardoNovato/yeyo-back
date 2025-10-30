@@ -4,7 +4,7 @@ Router para endpoints de CompraProveedor
 from fastapi import APIRouter, HTTPException, Path
 from typing import List
 from app.models.compra_proveedor import CompraProveedorCreate, CompraProveedorUpdate, CompraProveedorResponse
-from app.service.compra_proveedor_service import compra_proveedor_service
+from app.core.service_factory import ServiceFactory
 from app.core.exceptions import NotFoundError, DuplicateError, ForeignKeyError, DatabaseError
 import logging
 
@@ -21,6 +21,7 @@ router = APIRouter(
 async def crear_compra_proveedor(compra: CompraProveedorCreate):
     """Crear una nueva compra de proveedor"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         return await compra_proveedor_service.create(compra)
     except DuplicateError as e:
         raise HTTPException(status_code=409, detail=e.message)
@@ -38,6 +39,7 @@ async def crear_compra_proveedor(compra: CompraProveedorCreate):
 async def obtener_compras_proveedor():
     """Obtener todas las compras de proveedor"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         return await compra_proveedor_service.get_all()
     except DatabaseError as e:
         logger.error(f"Error al obtener compras: {e}")
@@ -53,6 +55,7 @@ async def obtener_compra_proveedor(
 ):
     """Obtener una compra de proveedor por su ID"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         return await compra_proveedor_service.get_by_id(id_compra)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -70,6 +73,7 @@ async def obtener_compras_por_proveedor(
 ):
     """Obtener todas las compras de un proveedor específico"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         return await compra_proveedor_service.get_by_proveedor(id_proveedor)
     except DatabaseError as e:
         logger.error(f"Error al obtener compras del proveedor {id_proveedor}: {e}")
@@ -86,6 +90,7 @@ async def actualizar_compra_proveedor(
 ):
     """Actualizar una compra de proveedor"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         return await compra_proveedor_service.update(id_compra, compra_data)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -107,6 +112,7 @@ async def eliminar_compra_proveedor(
 ):
     """Eliminar una compra de proveedor"""
     try:
+        compra_proveedor_service = ServiceFactory.get_compra_proveedor_service()
         await compra_proveedor_service.delete(id_compra)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)

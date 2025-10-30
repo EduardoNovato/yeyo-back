@@ -4,7 +4,7 @@ Router para endpoints de Proveedor
 from fastapi import APIRouter, HTTPException, Query, Path
 from typing import List
 from app.models.proveedor import ProveedorCreate, ProveedorUpdate, ProveedorResponse
-from app.service.proveedor_service import proveedor_service
+from app.core.service_factory import ServiceFactory
 from app.core.exceptions import NotFoundError, DuplicateError, DatabaseError
 import logging
 
@@ -21,6 +21,7 @@ router = APIRouter(
 async def crear_proveedor(proveedor: ProveedorCreate):
     """Crear un nuevo proveedor"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         return await proveedor_service.create(proveedor)
     except DuplicateError as e:
         raise HTTPException(status_code=409, detail=e.message)
@@ -36,6 +37,7 @@ async def crear_proveedor(proveedor: ProveedorCreate):
 async def obtener_proveedores():
     """Obtener todos los proveedores"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         return await proveedor_service.get_all()
     except DatabaseError as e:
         logger.error(f"Error al obtener proveedores: {e}")
@@ -51,6 +53,7 @@ async def obtener_proveedor(
 ):
     """Obtener un proveedor por su ID"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         return await proveedor_service.get_by_id(id_proveedor)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -69,6 +72,7 @@ async def actualizar_proveedor(
 ):
     """Actualizar un proveedor"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         return await proveedor_service.update(id_proveedor, proveedor_data)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -88,6 +92,7 @@ async def eliminar_proveedor(
 ):
     """Eliminar un proveedor"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         await proveedor_service.delete(id_proveedor)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -105,6 +110,7 @@ async def buscar_proveedores_por_nombre(
 ):
     """Buscar proveedores por nombre"""
     try:
+        proveedor_service = ServiceFactory.get_proveedor_service()
         return await proveedor_service.search_by_name(nombre)
     except DatabaseError as e:
         logger.error(f"Error al buscar proveedores por nombre: {e}")
